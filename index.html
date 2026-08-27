@@ -185,11 +185,14 @@
     <span id="saudeTexto" style="color:var(--ink-dim); font-size:13px;">Preencha os valores</span>
     <span style="border-left:1px solid var(--line); height:16px; margin:0 4px;"></span>
     <label class="checkline"><input type="checkbox" id="arredondar" checked onchange="calcular()" /> Arredondar preços psicológicos (ex: R$ 69,90)</label>
+    <span style="border-left:1px solid var(--line); height:16px; margin:0 4px;"></span>
+    <label class="checkline"><input type="checkbox" id="compensarTaxa" onchange="calcular()" /> Aumentar preço no cartão pra compensar a taxa</label>
   </div>
+  <p class="hint" id="notaCompensar" style="margin:-14px 0 20px;"></p>
 
   <div class="card">
     <h2 class="section">Taxas da maquininha</h2>
-    <p class="hint">Preencha a taxa (%) da sua operadora em cada parcela. O preço no cartão é calculado para você receber o mesmo valor líquido do PIX.</p>
+    <p class="hint">Preencha a taxa (%) da sua operadora em cada parcela.</p>
     <div class="taxas-grid" id="taxasGrid"></div>
   </div>
 
@@ -233,7 +236,7 @@
     </div>
   </div>
 
-  <p class="foot-note">Preço no cartão = Preço PIX ÷ (1 − taxa). Assim, depois de descontada a taxa, o valor que cai na sua conta é igual ao do PIX.</p>
+  <p class="foot-note">Marque "Aumentar preço no cartão" pra ver o preço que compensaria a taxa (Preço PIX ÷ (1 − taxa)). Desmarcado, o preço fica igual em qualquer forma de pagamento e a taxa reduz seu lucro real.</p>
 </div>
 
 <script>
@@ -356,6 +359,10 @@ function getTaxas(){
 function calcular(){
   const custo = parseNum(document.getElementById("custo").value);
   const arredondar = document.getElementById("arredondar").checked;
+  const compensarTaxa = document.getElementById("compensarTaxa").checked;
+  document.getElementById("notaCompensar").textContent = compensarTaxa
+    ? "Preço do cartão aumenta a cada parcela pra manter seu lucro igual ao do PIX."
+    : "Preço igual ao do PIX em qualquer parcela — a taxa da maquininha reduz seu lucro real conforme parcela.";
 
   let p;
   if(modo === "direto"){
@@ -381,27 +388,34 @@ function calcular(){
   document.getElementById("saudeTexto").textContent = marginLabel(margemVenda);
 
   const taxas = getTaxas();
-  document.getElementById("tabelaCartao").innerHTML = gerarLinhasCartao(precoFinal, custo, taxas, arredondar);
+  document.getElementById("tabelaCartao").innerHTML = gerarLinhasCartao(precoFinal, custo, taxas, arredondar, compensarTaxa);
 
   localStorage.setItem("gm_state", JSON.stringify({
     custo: document.getElementById("custo").value,
     precoVenda: document.getElementById("precoVenda").value,
     margemAlvo: document.getElementById("margemAlvo").value,
-    modo, arredondar, taxas
+    modo, arredondar, compensarTaxa, taxas
   }));
 
   return { custo, precoFinal, margemVenda, lucro };
 }
 
 /* Gera as linhas da tabela PIX x Cartão para um preço/custo/taxas quaisquer.
-   Usada tanto no cálculo principal quanto no detalhe de um item salvo. */
-function gerarLinhasCartao(precoFinal, custo, taxas, arredondar){
+   Usada tanto no cálculo principal quanto no detalhe de um item salvo.
+   compensarTaxa = true  -> preço no cartão sobe pra você sempre receber o líquido do PIX (modelo "compensado")
+   compensarTaxa = false -> preço é o mesmo do PIX em qualquer parcela, e a taxa reduz seu lucro de verdade (modelo real) */
+function gerarLinhasCartao(precoFinal, custo, taxas, arredondar, compensarTaxa){
   const lucro = precoFinal - custo;
   const margemVenda = precoFinal > 0 ? (lucro/precoFinal)*100 : NaN;
   let rows = `<tr><td style="color:var(--gold-bright); font-weight:600;">PIX / à vista</td><td class="num">0,0%</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num">${fmtBRL(0)}</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num" style="font-weight:600; color:${marginColor(margemVenda)}">${fmtBRL(lucro)}</td></tr>`;
   taxas.forEach((txRaw, i) => {
     const tx = parseNum(txRaw);
-    let precoCartao = (precoFinal > 0 && tx < 100) ? precoFinal / (1 - tx/100) : NaN;
+    let precoCartao;
+    if(compensarTaxa){
+      precoCartao = (precoFinal > 0 && tx < 100) ? precoFinal / (1 - tx/100) : NaN;
+    } else {
+      precoCartao = precoFinal;
+    }
     if(arredondar && isFinite(precoCartao)) precoCartao = roundPsychological(precoCartao);
     const valorTaxa = isFinite(precoCartao) ? precoCartao * (tx/100) : NaN;
     const voceRecebe = isFinite(precoCartao) ? precoCartao - valorTaxa : NaN;
@@ -437,7 +451,8 @@ function renderItens(){
 
     const taxasAtuais = getTaxas();
     const arredondar = document.getElementById("arredondar").checked;
-    const linhasDetalhe = gerarLinhasCartao(it.preco, it.custo, taxasAtuais, arredondar);
+    const compensarTaxa = document.getElementById("compensarTaxa").checked;
+    const linhasDetalhe = gerarLinhasCartao(it.preco, it.custo, taxasAtuais, arredondar, compensarTaxa);
     const detalhe = `
       <tr>
         <td colspan="6" style="padding:0; background:#100d09;">
@@ -580,6 +595,7 @@ function init(){
   document.getElementById("precoVenda").value = saved ? saved.precoVenda : "69,90";
   document.getElementById("margemAlvo").value = saved ? saved.margemAlvo : "40";
   document.getElementById("arredondar").checked = saved ? !!saved.arredondar : true;
+  document.getElementById("compensarTaxa").checked = saved ? !!saved.compensarTaxa : false;
 
   ["custo","precoVenda","margemAlvo"].forEach(id => {
     document.getElementById(id).addEventListener("input", calcular);
@@ -588,10 +604,6 @@ function init(){
   setModo(saved ? saved.modo : "direto");
   carregarItens();
   calcular();
-}
-</script>
-</body>
-</html>
 }
 </script>
 </body>
