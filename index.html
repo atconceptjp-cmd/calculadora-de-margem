@@ -207,7 +207,7 @@
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
       <div>
         <h2 class="section" style="margin:0;">Itens salvos</h2>
-        <p class="hint" style="margin:2px 0 0;">Salve cada produto calculado aqui.</p>
+        <p class="hint" style="margin:2px 0 0;">Salve cada produto calculado aqui. Clique num item pra ver o cálculo de cartão e PIX dele.</p>
         <p id="statusPlanilha" style="font-size:12px; color:var(--ink-dim); margin:2px 0 0;"></p>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -381,18 +381,7 @@ function calcular(){
   document.getElementById("saudeTexto").textContent = marginLabel(margemVenda);
 
   const taxas = getTaxas();
-  const tbody = document.getElementById("tabelaCartao");
-  let rows = `<tr><td style="color:var(--gold-bright); font-weight:600;">PIX / à vista</td><td class="num">0,0%</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num">${fmtBRL(0)}</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num" style="font-weight:600; color:${marginColor(margemVenda)}">${fmtBRL(lucro)}</td></tr>`;
-  taxas.forEach((txRaw, i) => {
-    const tx = parseNum(txRaw);
-    let precoCartao = (precoFinal > 0 && tx < 100) ? precoFinal / (1 - tx/100) : NaN;
-    if(arredondar && isFinite(precoCartao)) precoCartao = roundPsychological(precoCartao);
-    const valorTaxa = isFinite(precoCartao) ? precoCartao * (tx/100) : NaN;
-    const voceRecebe = isFinite(precoCartao) ? precoCartao - valorTaxa : NaN;
-    const lucroLiquido = isFinite(voceRecebe) ? voceRecebe - custo : NaN;
-    rows += `<tr><td>Cartão ${i+1}x</td><td class="num">${fmtPct(tx)}</td><td class="num">${fmtBRL(precoCartao)}</td><td class="num" style="color:var(--bad)">${fmtBRL(valorTaxa)}</td><td class="num">${fmtBRL(voceRecebe)}</td><td class="num" style="font-weight:600;">${fmtBRL(lucroLiquido)}</td></tr>`;
-  });
-  tbody.innerHTML = rows;
+  document.getElementById("tabelaCartao").innerHTML = gerarLinhasCartao(precoFinal, custo, taxas, arredondar);
 
   localStorage.setItem("gm_state", JSON.stringify({
     custo: document.getElementById("custo").value,
@@ -404,7 +393,27 @@ function calcular(){
   return { custo, precoFinal, margemVenda, lucro };
 }
 
+/* Gera as linhas da tabela PIX x Cartão para um preço/custo/taxas quaisquer.
+   Usada tanto no cálculo principal quanto no detalhe de um item salvo. */
+function gerarLinhasCartao(precoFinal, custo, taxas, arredondar){
+  const lucro = precoFinal - custo;
+  const margemVenda = precoFinal > 0 ? (lucro/precoFinal)*100 : NaN;
+  let rows = `<tr><td style="color:var(--gold-bright); font-weight:600;">PIX / à vista</td><td class="num">0,0%</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num">${fmtBRL(0)}</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num" style="font-weight:600; color:${marginColor(margemVenda)}">${fmtBRL(lucro)}</td></tr>`;
+  taxas.forEach((txRaw, i) => {
+    const tx = parseNum(txRaw);
+    let precoCartao = (precoFinal > 0 && tx < 100) ? precoFinal / (1 - tx/100) : NaN;
+    if(arredondar && isFinite(precoCartao)) precoCartao = roundPsychological(precoCartao);
+    const valorTaxa = isFinite(precoCartao) ? precoCartao * (tx/100) : NaN;
+    const voceRecebe = isFinite(precoCartao) ? precoCartao - valorTaxa : NaN;
+    const lucroLiquido = isFinite(voceRecebe) ? voceRecebe - custo : NaN;
+    rows += `<tr><td>Cartão ${i+1}x</td><td class="num">${fmtPct(tx)}</td><td class="num">${fmtBRL(precoCartao)}</td><td class="num" style="color:var(--bad)">${fmtBRL(valorTaxa)}</td><td class="num">${fmtBRL(voceRecebe)}</td><td class="num" style="font-weight:600;">${fmtBRL(lucroLiquido)}</td></tr>`;
+  });
+  return rows;
+}
+
 /* ---- Itens salvos / planilha ---- */
+let itemAberto = null; // índice do item com o detalhe expandido, ou null
+
 function renderItens(){
   const tbody = document.getElementById("tabelaItens");
   const vazio = document.getElementById("itensVazio");
@@ -414,15 +423,42 @@ function renderItens(){
     return;
   }
   vazio.style.display = "none";
-  tbody.innerHTML = itens.map((it, i) => `
-    <tr>
-      <td>${it.produto}</td>
-      <td class="num">${fmtBRL(it.custo)}</td>
-      <td class="num">${fmtBRL(it.preco)}</td>
-      <td class="num" style="color:${marginColor(it.margem)}">${fmtPct(it.margem)}</td>
-      <td class="num">${fmtBRL(it.lucro)}</td>
-      <td><button class="del" onclick="removerItem(${i})">✕</button></td>
-    </tr>`).join("");
+  tbody.innerHTML = itens.map((it, i) => {
+    const linhaPrincipal = `
+      <tr class="item-row" onclick="toggleDetalheItem(${i})" style="cursor:pointer;">
+        <td>${itemAberto===i ? "▾ " : "▸ "}${it.produto}</td>
+        <td class="num">${fmtBRL(it.custo)}</td>
+        <td class="num">${fmtBRL(it.preco)}</td>
+        <td class="num" style="color:${marginColor(it.margem)}">${fmtPct(it.margem)}</td>
+        <td class="num">${fmtBRL(it.lucro)}</td>
+        <td><button class="del" onclick="event.stopPropagation(); removerItem(${i})">✕</button></td>
+      </tr>`;
+    if(itemAberto !== i) return linhaPrincipal;
+
+    const taxasAtuais = getTaxas();
+    const arredondar = document.getElementById("arredondar").checked;
+    const linhasDetalhe = gerarLinhasCartao(it.preco, it.custo, taxasAtuais, arredondar);
+    const detalhe = `
+      <tr>
+        <td colspan="6" style="padding:0; background:#100d09;">
+          <div style="padding:14px 10px;">
+            <p class="hint" style="margin:0 0 10px;">Cálculo de <strong style="color:var(--gold-bright)">${it.produto}</strong> com as taxas atuais da maquininha:</p>
+            <table style="min-width:520px;">
+              <thead>
+                <tr><th style="text-align:left;">Forma</th><th>Taxa</th><th>Preço sugerido</th><th>Valor da taxa</th><th>Você recebe</th><th>Lucro líquido</th></tr>
+              </thead>
+              <tbody>${linhasDetalhe}</tbody>
+            </table>
+          </div>
+        </td>
+      </tr>`;
+    return linhaPrincipal + detalhe;
+  }).join("");
+}
+
+function toggleDetalheItem(i){
+  itemAberto = (itemAberto === i) ? null : i;
+  renderItens();
 }
 
 async function salvarItem(){
@@ -552,6 +588,10 @@ function init(){
   setModo(saved ? saved.modo : "direto");
   carregarItens();
   calcular();
+}
+</script>
+</body>
+</html>
 }
 </script>
 </body>
