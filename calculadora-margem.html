@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>Calculadora de Margem · AT Concept</title>
+<style>
+  :root{
+    --bg:#0c0b0a; --panel:#17140f; --panel2:#1e1a13; --line:#332c1e;
+    --gold:#cda44b; --gold-soft:#8f7638; --gold-bright:#e8c877;
+    --ink:#f2ede1; --ink-dim:#a89f8c;
+    --good:#7bc48f; --warn:#d9b25c; --bad:#e0654a;
+  }
+  * { box-sizing: border-box; }
+  html,body{ margin:0; padding:0; background:var(--bg); color:var(--ink);
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  h1,h2,.display{ font-family: Georgia, "Times New Roman", ui-serif, serif; }
+  .num{ font-variant-numeric: tabular-nums; }
+  input, button { font-family: inherit; }
+  ::-webkit-scrollbar{ height:8px; width:8px; }
+  ::-webkit-scrollbar-thumb{ background:var(--gold-soft); border-radius:4px; }
+
+  /* ---- Tela de senha ---- */
+  #gate{
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background: radial-gradient(circle at 50% 20%, #1c1710 0%, #0c0b0a 65%);
+    z-index: 50; padding: 20px;
+  }
+  .gate-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding: 36px 30px; width: 100%; max-width: 340px; text-align:center;
+  }
+  .gate-card .mark{ font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-dim); margin-bottom:8px; }
+  .gate-card h1{ font-size:22px; color:var(--gold-bright); margin:0 0 22px; }
+  .gate-card input{
+    width:100%; text-align:center; letter-spacing:.3em; font-size:18px;
+    background:#0f0d09; border:1px solid var(--line); color:var(--ink);
+    border-radius:8px; padding:12px; margin-bottom:14px;
+  }
+  .gate-card input:focus{ outline:none; border-color:var(--gold); box-shadow:0 0 0 3px rgba(205,164,75,.15); }
+  .gate-card button{
+    width:100%; padding:12px; border:0; border-radius:8px; font-weight:600; cursor:pointer;
+    background:linear-gradient(135deg,#e8c877,#b98f3a); color:#14110b; font-size:14px;
+  }
+  .gate-card .err{ color:var(--bad); font-size:13px; min-height:18px; margin-bottom:6px; }
+  .gate-card label{ display:flex; gap:8px; align-items:center; justify-content:center; margin-top:14px; font-size:12px; color:var(--ink-dim); cursor:pointer; }
+
+  /* ---- App ---- */
+  #app{ display:none; max-width: 880px; margin: 0 auto; padding: 24px 16px 60px; }
+  .top{ display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:24px; }
+  .top .mark{ font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-dim); margin-bottom:4px;}
+  .top h1{ font-size: 28px; color:var(--gold-bright); margin:0; }
+  .top p{ color:var(--ink-dim); font-size:13px; margin:4px 0 0; }
+  .toggle-group{ display:flex; gap:8px; }
+  .toggle{ padding:7px 14px; border-radius:999px; font-size:13px; font-weight:600; cursor:pointer; border:1px solid var(--line); background:#14110c; color:var(--ink-dim); }
+  .toggle.on{ background:linear-gradient(135deg,#e8c877,#b98f3a); color:#14110b; border-color:transparent; }
+  .logout{ font-size:12px; color:var(--ink-dim); background:none; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; }
+
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:20px; }
+  .card2{ background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .grid4{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom: 20px;}
+  @media (max-width:640px){ .grid2,.grid4{ grid-template-columns:1fr 1fr; } }
+
+  label.f{ display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-dim); margin-bottom:6px; }
+  .inputwrap{ position:relative; }
+  .inputwrap span{ position:absolute; top:50%; transform:translateY(-50%); font-size:13px; color:var(--ink-dim); }
+  .inputwrap span.left{ left:12px; }
+  .inputwrap span.right{ right:12px; }
+  input.field{
+    width:100%; background:#0f0d09; border:1px solid var(--line); color:var(--ink);
+    border-radius:8px; padding:10px 12px; font-size:16px;
+  }
+  input.field.pl{ padding-left:32px; }
+  input.field.pr{ padding-right:28px; }
+  input.field:focus{ outline:none; border-color:var(--gold); box-shadow:0 0 0 3px rgba(205,164,75,.15); }
+
+  .kpi-label{ font-size:11px; text-transform:uppercase; color:var(--ink-dim); margin-bottom:4px; }
+  .kpi-val{ font-size:22px; }
+
+  h2.section{ font-size:16px; color:var(--gold-bright); margin:0 0 4px; }
+  .hint{ color:var(--ink-dim); font-size:13px; margin:0 0 14px; }
+
+  .taxas-grid{ display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
+  @media (min-width:640px){ .taxas-grid{ grid-template-columns:repeat(10,1fr); } }
+  .taxa-chip{ background:#14110c; border:1px solid var(--line); border-radius:8px; padding:8px; text-align:center; }
+  .taxa-chip .n{ font-size:10px; text-transform:uppercase; color:var(--ink-dim); margin-bottom:4px; }
+  .taxa-chip input{ width:100%; text-align:center; background:#0f0d09; border:1px solid var(--line); color:var(--ink); border-radius:6px; padding:6px 2px; font-size:13px; }
+
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  thead th{ text-align:right; font-size:11px; text-transform:uppercase; color:var(--ink-dim); border-bottom:1px solid var(--line); padding:8px 6px; }
+  thead th:first-child{ text-align:left; }
+  tbody td{ text-align:right; padding:8px 6px; border-bottom:1px solid var(--line); }
+  tbody td:first-child{ text-align:left; }
+  tbody tr:hover{ background: rgba(205,164,75,0.05); }
+  tbody tr:last-child td{ border-bottom:0; }
+
+  .row-actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top: 6px;}
+  .btn{ border:1px solid var(--line); background:#14110c; color:var(--ink); border-radius:8px; padding:9px 14px; font-size:13px; cursor:pointer; font-weight:600;}
+  .btn.gold{ background:linear-gradient(135deg,#e8c877,#b98f3a); color:#14110b; border-color:transparent; }
+  .btn:hover{ filter:brightness(1.1); }
+  .checkline{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-dim); }
+
+  .del{ background:none; border:0; color:var(--bad); cursor:pointer; font-size:16px; line-height:1; }
+  .foot-note{ text-align:center; color:var(--ink-dim); font-size:12px; margin-top:8px; }
+  .empty{ color:var(--ink-dim); font-size:13px; padding: 10px 0; }
+</style>
+</head>
+<body>
+
+<!-- ===== TELA DE SENHA ===== -->
+<div id="gate">
+  <div class="gate-card">
+    <div class="mark">AT Concept</div>
+    <h1>Área restrita</h1>
+    <input id="pwInput" type="password" placeholder="••••••••" autocomplete="off" />
+    <div class="err" id="pwErr"></div>
+    <button onclick="tryLogin()">Entrar</button>
+    <label><input type="checkbox" id="remember" checked /> Manter conectado neste aparelho</label>
+  </div>
+</div>
+
+<!-- ===== APP ===== -->
+<div id="app">
+  <div class="top">
+    <div>
+      <div class="mark">AT Concept · Ferramenta interna</div>
+      <h1>Calculadora de Margem</h1>
+      <p>Preço de venda, margem e comparação PIX × cartão</p>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div class="toggle-group">
+        <div class="toggle on" id="tab-direto" onclick="setModo('direto')">Tenho o preço</div>
+        <div class="toggle" id="tab-reverso" onclick="setModo('reverso')">Quero a margem</div>
+      </div>
+      <button class="logout" onclick="logout()">Sair</button>
+    </div>
+  </div>
+
+  <div class="card grid2">
+    <div>
+      <label class="f">Preço de compra (custo)</label>
+      <div class="inputwrap">
+        <span class="left">R$</span>
+        <input class="field pl" id="custo" inputmode="decimal" placeholder="0,00" />
+      </div>
+    </div>
+    <div id="campoDireto">
+      <label class="f">Preço de venda (PIX / à vista)</label>
+      <div class="inputwrap">
+        <span class="left">R$</span>
+        <input class="field pl" id="precoVenda" inputmode="decimal" placeholder="0,00" />
+      </div>
+    </div>
+    <div id="campoReverso" style="display:none;">
+      <label class="f">Margem desejada sobre a venda</label>
+      <div class="inputwrap">
+        <input class="field pr" id="margemAlvo" inputmode="decimal" placeholder="40" />
+        <span class="right">%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid4">
+    <div class="card2">
+      <div class="kpi-label">Preço PIX sugerido</div>
+      <div class="kpi-val num display" id="kpiPreco" style="color:var(--gold-bright)">—</div>
+    </div>
+    <div class="card2">
+      <div class="kpi-label">Lucro líquido</div>
+      <div class="kpi-val num display" id="kpiLucro">—</div>
+    </div>
+    <div class="card2">
+      <div class="kpi-label">Margem sobre venda</div>
+      <div class="kpi-val num display" id="kpiMargem">—</div>
+    </div>
+    <div class="card2">
+      <div class="kpi-label">Markup sobre custo</div>
+      <div class="kpi-val num display" id="kpiMarkup" style="color:var(--gold-bright)">—</div>
+    </div>
+  </div>
+
+  <div class="row-actions" style="margin-bottom:20px;">
+    <span id="saudeDot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--ink-dim);"></span>
+    <span id="saudeTexto" style="color:var(--ink-dim); font-size:13px;">Preencha os valores</span>
+    <span style="border-left:1px solid var(--line); height:16px; margin:0 4px;"></span>
+    <label class="checkline"><input type="checkbox" id="arredondar" checked onchange="calcular()" /> Arredondar preços psicológicos (ex: R$ 69,90)</label>
+  </div>
+
+  <div class="card">
+    <h2 class="section">Taxas da maquininha</h2>
+    <p class="hint">Preencha a taxa (%) da sua operadora em cada parcela. O preço no cartão é calculado para você receber o mesmo valor líquido do PIX.</p>
+    <div class="taxas-grid" id="taxasGrid"></div>
+  </div>
+
+  <div class="card" style="overflow-x:auto;">
+    <h2 class="section">PIX × Cartão, parcela a parcela</h2>
+    <table style="min-width:560px;">
+      <thead>
+        <tr><th style="text-align:left;">Forma</th><th>Taxa</th><th>Preço sugerido</th><th>Valor da taxa</th><th>Você recebe</th><th>Lucro líquido</th></tr>
+      </thead>
+      <tbody id="tabelaCartao"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+      <div>
+        <h2 class="section" style="margin:0;">Itens salvos</h2>
+        <p class="hint" style="margin:2px 0 0;">Salve cada produto calculado aqui.</p>
+        <p id="statusPlanilha" style="font-size:12px; color:var(--ink-dim); margin:2px 0 0;"></p>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <input class="field" id="nomeProduto" placeholder="Nome do produto" style="width:180px; padding:9px 12px;" />
+        <button class="btn gold" onclick="salvarItem()">Salvar item</button>
+      </div>
+    </div>
+
+    <div style="overflow-x:auto;">
+      <table style="min-width:560px;">
+        <thead>
+          <tr><th style="text-align:left;">Produto</th><th>Custo</th><th>Venda PIX</th><th>Margem</th><th>Lucro</th><th></th></tr>
+        </thead>
+        <tbody id="tabelaItens"></tbody>
+      </table>
+      <div class="empty" id="itensVazio">Nenhum item salvo ainda.</div>
+    </div>
+
+    <div class="row-actions" style="margin-top:16px;">
+      <button class="btn" onclick="baixarCSV()">⬇ Baixar planilha (.csv)</button>
+      <button class="btn" onclick="document.getElementById('importFile').click()">⬆ Importar planilha</button>
+      <input type="file" id="importFile" accept=".csv" style="display:none" onchange="importarCSV(event)" />
+    </div>
+  </div>
+
+  <p class="foot-note">Preço no cartão = Preço PIX ÷ (1 − taxa). Assim, depois de descontada a taxa, o valor que cai na sua conta é igual ao do PIX.</p>
+</div>
+
+<script>
+/* =========================================================
+   SENHA
+   A senha não fica em texto puro no código — é comparada
+   por hash (SHA-256). Padrão atual: atconcept2026
+   Para trocar a senha: gere um novo hash SHA-256 do texto
+   desejado e substitua o valor de PW_HASH abaixo.
+   ========================================================= */
+const PW_HASH = "b3cc751dab78d9865c40c1725c8cc5ba1ac0f6e4d7d3efea58aaea98273ade93";
+
+async function sha256(text){
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+async function tryLogin(){
+  const val = document.getElementById("pwInput").value;
+  const hash = await sha256(val);
+  if(hash === PW_HASH){
+    if(document.getElementById("remember").checked){
+      localStorage.setItem("gm_auth", "1");
+    } else {
+      sessionStorage.setItem("gm_auth", "1");
+    }
+    openApp();
+  } else {
+    document.getElementById("pwErr").textContent = "Senha incorreta.";
+    document.getElementById("pwInput").value = "";
+  }
+}
+document.getElementById("pwInput").addEventListener("keydown", e => { if(e.key==="Enter") tryLogin(); });
+
+function openApp(){
+  document.getElementById("gate").style.display = "none";
+  document.getElementById("app").style.display = "block";
+  init();
+}
+function logout(){
+  localStorage.removeItem("gm_auth");
+  sessionStorage.removeItem("gm_auth");
+  location.reload();
+}
+if(localStorage.getItem("gm_auth") === "1" || sessionStorage.getItem("gm_auth") === "1"){
+  openApp();
+}
+
+/* =========================================================
+   GOOGLE SHEETS (mesmo esquema de ontem)
+   1) Cole aqui a URL do Web App gerada no Google Sheets (Extensões > Apps Script > Implantar)
+   2) Coloque a mesma senha que está no Code.gs (constante SENHA)
+   Deixe SHEETS_URL vazio ("") para a calculadora funcionar só localmente, sem planilha.
+   ========================================================= */
+const SHEETS_URL = "https://script.google.com/macros/s/AKfycbyD9g-23OoET5RJ_AxANw3ksoV_NiBxih13BR6OgUopxKxUxEjdG_0WUq9i1bjHzzTWQQ/exec";        // ex: "https://script.google.com/macros/s/AKfycb.../exec"
+const SENHA_SHEETS = "atconcept2026";
+
+/* =========================================================
+   CALCULADORA
+   ========================================================= */
+const DEFAULT_TAXAS = [3.5, 4.29, 4.99, 5.79, 6.59, 7.49, 8.39, 9.29, 10.19, 10.99];
+let modo = "direto";
+let itens = JSON.parse(localStorage.getItem("gm_itens") || "[]");
+
+function parseNum(s){
+  const n = parseFloat(String(s).replace(",", "."));
+  return isNaN(n) ? 0 : n;
+}
+function fmtBRL(v){
+  return isFinite(v) ? v.toLocaleString("pt-BR", {style:"currency", currency:"BRL"}) : "—";
+}
+function fmtPct(v){
+  return isFinite(v) ? v.toFixed(1) + "%" : "—";
+}
+function marginColor(pct){
+  if(!isFinite(pct)) return "var(--ink-dim)";
+  if(pct < 10) return "var(--bad)";
+  if(pct < 25) return "var(--warn)";
+  return "var(--good)";
+}
+function marginLabel(pct){
+  if(!isFinite(pct)) return "Preencha os valores";
+  if(pct < 0) return "Prejuízo";
+  if(pct < 10) return "Margem apertada";
+  if(pct < 25) return "Margem razoável";
+  return "Margem saudável";
+}
+function roundPsychological(v){
+  if(!isFinite(v) || v <= 0) return v;
+  const floor10 = Math.floor(v/10)*10;
+  const cents = v - floor10;
+  return cents <= 9.9 ? floor10 + 9.9 : floor10 + 19.9;
+}
+
+function setModo(m){
+  modo = m;
+  document.getElementById("tab-direto").classList.toggle("on", m==="direto");
+  document.getElementById("tab-reverso").classList.toggle("on", m==="reverso");
+  document.getElementById("campoDireto").style.display = m==="direto" ? "block" : "none";
+  document.getElementById("campoReverso").style.display = m==="reverso" ? "block" : "none";
+  calcular();
+}
+
+function buildTaxasGrid(taxas){
+  const grid = document.getElementById("taxasGrid");
+  grid.innerHTML = "";
+  taxas.forEach((tx, i) => {
+    const div = document.createElement("div");
+    div.className = "taxa-chip";
+    div.innerHTML = `<div class="n">${i+1}x</div><input value="${tx}" oninput="calcular()" data-idx="${i}" class="taxaInput" />`;
+    grid.appendChild(div);
+  });
+}
+
+function getTaxas(){
+  return Array.from(document.querySelectorAll(".taxaInput")).map(el => el.value);
+}
+
+function calcular(){
+  const custo = parseNum(document.getElementById("custo").value);
+  const arredondar = document.getElementById("arredondar").checked;
+
+  let p;
+  if(modo === "direto"){
+    p = parseNum(document.getElementById("precoVenda").value);
+  } else {
+    const alvo = parseNum(document.getElementById("margemAlvo").value);
+    p = (custo > 0 && alvo < 100) ? custo / (1 - alvo/100) : NaN;
+  }
+
+  const precoFinal = (arredondar && isFinite(p) && p>0) ? roundPsychological(p) : p;
+  const lucro = precoFinal - custo;
+  const margemVenda = precoFinal > 0 ? (lucro/precoFinal)*100 : NaN;
+  const markup = custo > 0 ? (lucro/custo)*100 : NaN;
+
+  document.getElementById("kpiPreco").textContent = fmtBRL(precoFinal);
+  document.getElementById("kpiLucro").textContent = fmtBRL(lucro);
+  document.getElementById("kpiLucro").style.color = marginColor(margemVenda);
+  document.getElementById("kpiMargem").textContent = fmtPct(margemVenda);
+  document.getElementById("kpiMargem").style.color = marginColor(margemVenda);
+  document.getElementById("kpiMarkup").textContent = fmtPct(markup);
+
+  document.getElementById("saudeDot").style.background = marginColor(margemVenda);
+  document.getElementById("saudeTexto").textContent = marginLabel(margemVenda);
+
+  const taxas = getTaxas();
+  const tbody = document.getElementById("tabelaCartao");
+  let rows = `<tr><td style="color:var(--gold-bright); font-weight:600;">PIX / à vista</td><td class="num">0,0%</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num">${fmtBRL(0)}</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num" style="font-weight:600; color:${marginColor(margemVenda)}">${fmtBRL(lucro)}</td></tr>`;
+  taxas.forEach((txRaw, i) => {
+    const tx = parseNum(txRaw);
+    let precoCartao = (precoFinal > 0 && tx < 100) ? precoFinal / (1 - tx/100) : NaN;
+    if(arredondar && isFinite(precoCartao)) precoCartao = roundPsychological(precoCartao);
+    const valorTaxa = isFinite(precoCartao) ? precoCartao * (tx/100) : NaN;
+    const voceRecebe = isFinite(precoCartao) ? precoCartao - valorTaxa : NaN;
+    const lucroLiquido = isFinite(voceRecebe) ? voceRecebe - custo : NaN;
+    rows += `<tr><td>Cartão ${i+1}x</td><td class="num">${fmtPct(tx)}</td><td class="num">${fmtBRL(precoCartao)}</td><td class="num" style="color:var(--bad)">${fmtBRL(valorTaxa)}</td><td class="num">${fmtBRL(voceRecebe)}</td><td class="num" style="font-weight:600;">${fmtBRL(lucroLiquido)}</td></tr>`;
+  });
+  tbody.innerHTML = rows;
+
+  localStorage.setItem("gm_state", JSON.stringify({
+    custo: document.getElementById("custo").value,
+    precoVenda: document.getElementById("precoVenda").value,
+    margemAlvo: document.getElementById("margemAlvo").value,
+    modo, arredondar, taxas
+  }));
+
+  return { custo, precoFinal, margemVenda, lucro };
+}
+
+/* ---- Itens salvos / planilha ---- */
+function renderItens(){
+  const tbody = document.getElementById("tabelaItens");
+  const vazio = document.getElementById("itensVazio");
+  if(itens.length === 0){
+    tbody.innerHTML = "";
+    vazio.style.display = "block";
+    return;
+  }
+  vazio.style.display = "none";
+  tbody.innerHTML = itens.map((it, i) => `
+    <tr>
+      <td>${it.produto}</td>
+      <td class="num">${fmtBRL(it.custo)}</td>
+      <td class="num">${fmtBRL(it.preco)}</td>
+      <td class="num" style="color:${marginColor(it.margem)}">${fmtPct(it.margem)}</td>
+      <td class="num">${fmtBRL(it.lucro)}</td>
+      <td><button class="del" onclick="removerItem(${i})">✕</button></td>
+    </tr>`).join("");
+}
+
+async function salvarItem(){
+  const nome = document.getElementById("nomeProduto").value.trim() || "Produto sem nome";
+  const r = calcular();
+  if(!isFinite(r.precoFinal) || r.custo <= 0){
+    alert("Preencha custo e preço de venda (ou margem) antes de salvar.");
+    return;
+  }
+  const novoItem = { produto: nome, custo: r.custo, preco: r.precoFinal, margem: r.margemVenda, lucro: r.lucro, data: new Date().toLocaleDateString("pt-BR") };
+  itens.push(novoItem);
+  localStorage.setItem("gm_itens", JSON.stringify(itens));
+  document.getElementById("nomeProduto").value = "";
+  renderItens();
+  setStatusPlanilha("Salvando...");
+
+  if(SHEETS_URL){
+    try{
+      await fetch(SHEETS_URL, { method: "POST", body: JSON.stringify({ senha: SENHA_SHEETS, acao: "salvar", item: novoItem }) });
+      await carregarItens();
+      setStatusPlanilha("Salvo na planilha ✓");
+    }catch(err){
+      console.warn("Não deu pra salvar na planilha agora, ficou salvo só neste aparelho.", err);
+      setStatusPlanilha("Sem conexão — salvo só neste aparelho");
+    }
+  }
+}
+
+async function removerItem(i){
+  itens.splice(i,1);
+  localStorage.setItem("gm_itens", JSON.stringify(itens));
+  renderItens();
+
+  if(SHEETS_URL){
+    try{
+      await fetch(SHEETS_URL, { method: "POST", body: JSON.stringify({ senha: SENHA_SHEETS, acao: "remover", linha: i }) });
+      await carregarItens();
+    }catch(err){
+      console.warn("Não deu pra remover na planilha agora.", err);
+    }
+  }
+}
+
+async function carregarItens(){
+  if(!SHEETS_URL){ renderItens(); return; }
+  setStatusPlanilha("Atualizando...");
+  try{
+    const res = await fetch(`${SHEETS_URL}?senha=${encodeURIComponent(SENHA_SHEETS)}`);
+    const data = await res.json();
+    if(data.erro){ setStatusPlanilha("Senha da planilha incorreta"); return; }
+    itens = (data.itens || []).map(it => ({
+      produto: it.produto, custo: parseNum(it.custo), preco: parseNum(it.preco),
+      margem: parseNum(it.margem), lucro: parseNum(it.lucro), data: it.data
+    }));
+    localStorage.setItem("gm_itens", JSON.stringify(itens));
+    setStatusPlanilha("Sincronizado com a planilha ✓");
+  }catch(err){
+    console.warn("Sem conexão com a planilha, usando os últimos dados salvos neste aparelho.", err);
+    setStatusPlanilha("Sem conexão — mostrando dados locais");
+  }
+  renderItens();
+}
+
+function setStatusPlanilha(texto){
+  const el = document.getElementById("statusPlanilha");
+  if(el) el.textContent = texto;
+}
+
+function baixarCSV(){
+  const header = "Produto;Custo;Preco Venda PIX;Margem (%);Lucro;Data\n";
+  const rows = itens.map(it =>
+    [it.produto, it.custo.toFixed(2).replace(".",","), it.preco.toFixed(2).replace(".",","),
+     it.margem.toFixed(1).replace(".",","), it.lucro.toFixed(2).replace(".",","), it.data].join(";")
+  ).join("\n");
+  const blob = new Blob(["\uFEFF" + header + rows], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "planilha-margem-at-concept.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importarCSV(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target.result.replace(/^\uFEFF/, "");
+    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+    lines.shift(); // remove cabeçalho
+    let importados = 0;
+    lines.forEach(line => {
+      const [produto, custo, preco, margem, lucro, data] = line.split(";");
+      if(!produto) return;
+      itens.push({
+        produto,
+        custo: parseNum(custo), preco: parseNum(preco),
+        margem: parseNum(margem), lucro: parseNum(lucro),
+        data: data || new Date().toLocaleDateString("pt-BR")
+      });
+      importados++;
+    });
+    localStorage.setItem("gm_itens", JSON.stringify(itens));
+    renderItens();
+    alert(importados + " item(ns) importado(s) com sucesso.");
+    event.target.value = "";
+  };
+  reader.readAsText(file, "UTF-8");
+}
+
+/* ---- Inicialização ---- */
+function init(){
+  const saved = JSON.parse(localStorage.getItem("gm_state") || "null");
+  const taxas = saved && saved.taxas && saved.taxas.length === 10 ? saved.taxas : DEFAULT_TAXAS;
+  buildTaxasGrid(taxas);
+
+  document.getElementById("custo").value = saved ? saved.custo : "35,00";
+  document.getElementById("precoVenda").value = saved ? saved.precoVenda : "69,90";
+  document.getElementById("margemAlvo").value = saved ? saved.margemAlvo : "40";
+  document.getElementById("arredondar").checked = saved ? !!saved.arredondar : true;
+
+  ["custo","precoVenda","margemAlvo"].forEach(id => {
+    document.getElementById(id).addEventListener("input", calcular);
+  });
+
+  setModo(saved ? saved.modo : "direto");
+  carregarItens();
+  calcular();
+}
+</script>
+</body>
+</html>
