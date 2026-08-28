@@ -241,7 +241,7 @@
     <div style="overflow-x:auto;">
       <table style="min-width:560px;">
         <thead>
-          <tr><th style="text-align:left;">Produto</th><th>Custo</th><th>Venda PIX</th><th>Margem</th><th>Lucro</th><th></th></tr>
+          <tr><th style="text-align:left;">Produto</th><th>Custo</th><th>Venda PIX</th><th>Venda Cartão 1x</th><th>Margem</th><th>Lucro</th><th></th></tr>
         </thead>
         <tbody id="tabelaItens"></tbody>
       </table>
@@ -641,6 +641,23 @@ function gerarLinhasCartao(precoPix, precoCartaoBase, custo, taxas, arredondar, 
 /* ---- Itens salvos / planilha ---- */
 let itemAberto = null; // índice do item com o detalhe expandido, ou null
 
+function getPrecoCartaoExibicao(it){
+  const taxas = Array.isArray(it.taxas) && it.taxas.length === 10 ? it.taxas : getTaxas();
+  const tx1 = parseNum(taxas[0]);
+  const compensar = it.compensarTaxa === true || it.compensarTaxa === "true" || it.compensarTaxa === "TRUE";
+  const base = isFinite(parseNum(it.precoCartaoBase)) && parseNum(it.precoCartaoBase) > 0
+    ? parseNum(it.precoCartaoBase)
+    : parseNum(it.preco);
+
+  if(compensar && isFinite(it.preco) && it.preco > 0 && tx1 < 100){
+    let valor = it.preco / (1 - tx1 / 100);
+    if(it.arredondar) valor = roundPsychological(valor);
+    return valor;
+  }
+
+  return base;
+}
+
 function renderItens(){
   const tbody = document.getElementById("tabelaItens");
   const vazio = document.getElementById("itensVazio");
@@ -651,37 +668,51 @@ function renderItens(){
   }
   vazio.style.display = "none";
   tbody.innerHTML = itens.map((it, i) => {
+    const precoCartaoExibicao = getPrecoCartaoExibicao(it);
     const linhaPrincipal = `
       <tr class="item-row" onclick="toggleDetalheItem(${i})" style="cursor:pointer;">
         <td>${itemAberto===i ? "▾ " : "▸ "}${it.produto}</td>
         <td class="num">${fmtBRL(it.custo)}</td>
-        <td class="num">${fmtBRL(it.preco)}</td>
+        <td class="num" style="color:var(--gold-bright); font-weight:600;">${fmtBRL(it.preco)}</td>
+        <td class="num" style="color:var(--gold-bright); font-weight:600;">${fmtBRL(precoCartaoExibicao)}</td>
         <td class="num" style="color:${marginColor(it.margem)}">${fmtPct(it.margem)}</td>
         <td class="num">${fmtBRL(it.lucro)}</td>
         <td><button class="del" onclick="event.stopPropagation(); removerItem(${i})">✕</button></td>
       </tr>`;
     if(itemAberto !== i) return linhaPrincipal;
 
-    // Usa o retrato exato salvo no momento do "Salvar item" — nada recalcula com taxas novas.
-    const instVinculada = it.instituicao ? instituicoes.find(x => x.nome === it.instituicao) : null;
-    const taxasSalvas = (instVinculada && Array.isArray(instVinculada.taxas) && instVinculada.taxas.length === 10)
-      ? instVinculada.taxas
-      : ((it.taxas && it.taxas.length === 10) ? it.taxas : getTaxas());
+    // O item salvo usa o retrato exato das taxas gravadas no momento do salvamento.
+    // Assim, alterar a maquininha depois não altera o histórico do produto.
+    const taxasSalvas = (it.taxas && it.taxas.length === 10) ? it.taxas : getTaxas();
     const arredondarSalvo = it.arredondar !== undefined ? it.arredondar : document.getElementById("arredondar").checked;
     const compensarSalvo = it.compensarTaxa !== undefined ? it.compensarTaxa : document.getElementById("compensarTaxa").checked;
-    const linhasDetalhe = gerarLinhasCartao(it.preco, it.preco, it.custo, taxasSalvas, arredondarSalvo, compensarSalvo);
-    const instNome = it.instituicao || instituicaoAtual;
+    const precoCartaoBaseSalvo = (isFinite(parseNum(it.precoCartaoBase)) && parseNum(it.precoCartaoBase) > 0) ? parseNum(it.precoCartaoBase) : it.preco;
+    const linhasDetalhe = gerarLinhasCartao(it.preco, precoCartaoBaseSalvo, it.custo, taxasSalvas, arredondarSalvo, compensarSalvo);
+    const instNome = it.instituicao || "Sem instituição";
+    const precoCartaoResumo = getPrecoCartaoExibicao(it);
     const detalhe = `
       <tr>
-        <td colspan="6" style="padding:0; background:#100d09;">
+        <td colspan="7" style="padding:0; background:#100d09;">
           <div style="padding:14px 10px;">
-            <p class="hint" style="margin:0 0 10px;">Simulação salva em ${it.data} com as taxas de <strong style="color:var(--gold-bright)">${instNome}</strong>:</p>
-            <table style="min-width:520px;">
-              <thead>
-                <tr><th style="text-align:left;">Forma</th><th>Taxa</th><th>Preço sugerido</th><th>Valor da taxa</th><th>Você recebe</th><th>Margem</th><th>Lucro líquido</th></tr>
-              </thead>
-              <tbody>${linhasDetalhe}</tbody>
-            </table>
+            <p class="hint" style="margin:0 0 12px;">Simulação salva em ${it.data} com as taxas de <strong style="color:var(--gold-bright)">${instNome}</strong>:</p>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+              <div style="flex:1; min-width:150px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:#15110c;">
+                <div style="font-size:11px; color:var(--ink-dim); text-transform:uppercase;">Valor no PIX</div>
+                <div style="font-size:18px; font-weight:700; color:var(--gold-bright); margin-top:3px;">${fmtBRL(it.preco)}</div>
+              </div>
+              <div style="flex:1; min-width:150px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:#15110c;">
+                <div style="font-size:11px; color:var(--ink-dim); text-transform:uppercase;">Valor no cartão 1x</div>
+                <div style="font-size:18px; font-weight:700; color:var(--gold-bright); margin-top:3px;">${fmtBRL(precoCartaoResumo)}</div>
+              </div>
+            </div>
+            <div style="overflow-x:auto;">
+              <table style="min-width:650px;">
+                <thead>
+                  <tr><th style="text-align:left;">Forma</th><th>Taxa</th><th>Preço sugerido</th><th>Valor da taxa</th><th>Você recebe</th><th>Margem</th><th>Lucro líquido</th></tr>
+                </thead>
+                <tbody>${linhasDetalhe}</tbody>
+              </table>
+            </div>
           </div>
         </td>
       </tr>`;
@@ -703,6 +734,7 @@ async function salvarItem(){
   }
   const novoItem = {
     produto: nome, custo: r.custo, preco: r.precoPix, margem: r.margemVenda, lucro: r.lucro,
+    precoCartaoBase: r.precoCartaoBase,
     data: new Date().toLocaleDateString("pt-BR"),
     modo: modo,
     instituicao: instituicaoAtual,
@@ -752,6 +784,7 @@ async function carregarItens(){
     if(data.erro){ setStatusPlanilha("Senha da planilha incorreta"); return; }
     itens = (data.itens || []).map(it => ({
       produto: it.produto, custo: parseNum(it.custo), preco: parseNum(it.preco),
+      precoCartaoBase: parseNum(it.precoCartaoBase),
       margem: parseNum(it.margem), lucro: parseNum(it.lucro), data: it.data,
       modo: it.modo || "direto",
       instituicao: it.instituicao || "",
@@ -774,9 +807,10 @@ function setStatusPlanilha(texto){
 }
 
 function baixarCSV(){
-  const header = "Produto;Custo;Preco Venda;Margem (%);Lucro;Data;Instituicao;Taxas;Arredondar;CompensarTaxa;Modo\n";
+  const header = "Produto;Custo;Preco Venda;Preco Cartao Base;Margem (%);Lucro;Data;Instituicao;Taxas;Arredondar;CompensarTaxa;Modo\n";
   const rows = itens.map(it =>
     [it.produto, it.custo.toFixed(2).replace(".",","), it.preco.toFixed(2).replace(".",","),
+     (isFinite(parseNum(it.precoCartaoBase)) ? parseNum(it.precoCartaoBase) : it.preco).toFixed(2).replace(".",","),
      it.margem.toFixed(1).replace(".",","), it.lucro.toFixed(2).replace(".",","), it.data,
      it.instituicao || "", (it.taxas || []).join("|"), !!it.arredondar, !!it.compensarTaxa, it.modo || "direto"
     ].join(";")
@@ -800,11 +834,12 @@ function importarCSV(event){
     lines.shift(); // remove cabeçalho
     let importados = 0;
     lines.forEach(line => {
-      const [produto, custo, preco, margem, lucro, data, instituicao, taxasStr, arredondarStr, compensarStr, modoItem] = line.split(";");
+      const [produto, custo, preco, precoCartaoBase, margem, lucro, data, instituicao, taxasStr, arredondarStr, compensarStr, modoItem] = line.split(";");
       if(!produto) return;
       itens.push({
         produto,
         custo: parseNum(custo), preco: parseNum(preco),
+        precoCartaoBase: parseNum(precoCartaoBase) || parseNum(preco),
         margem: parseNum(margem), lucro: parseNum(lucro),
         data: data || new Date().toLocaleDateString("pt-BR"),
         instituicao: instituicao || "",
