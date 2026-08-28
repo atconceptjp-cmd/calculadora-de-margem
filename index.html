@@ -192,7 +192,18 @@
 
   <div class="card">
     <h2 class="section">Taxas da maquininha</h2>
-    <p class="hint">Preencha a taxa (%) da sua operadora em cada parcela.</p>
+    <p class="hint">Cadastre cada instituição de pagamento com as taxas dela (1x a 10x) e escolha qual usar no cálculo.</p>
+    <div class="row-actions" style="margin-bottom:14px;">
+      <select id="instituicaoSelect" class="field" style="width:auto; min-width:200px; padding:9px 12px;" onchange="selecionarInstituicao(this.value)"></select>
+      <button class="btn" onclick="abrirNovaInstituicao()">+ Adicionar instituição</button>
+      <button class="btn" onclick="removerInstituicaoAtual()" style="color:var(--bad); border-color:var(--bad);">Remover esta</button>
+    </div>
+    <div id="novaInstituicaoForm" style="display:none; margin-bottom:14px;" class="row-actions">
+      <input class="field" id="novaInstituicaoNome" placeholder="Nome da instituição (ex: InfinitePay)" style="width:220px; padding:9px 12px;" />
+      <button class="btn gold" onclick="confirmarNovaInstituicao()">Adicionar</button>
+      <button class="btn" onclick="cancelarNovaInstituicao()">Cancelar</button>
+    </div>
+    <p id="statusInstituicoes" style="font-size:12px; color:var(--ink-dim); margin:0 0 10px;"></p>
     <div class="taxas-grid" id="taxasGrid"></div>
   </div>
 
@@ -327,9 +338,10 @@ function marginLabel(pct){
 }
 function roundPsychological(v){
   if(!isFinite(v) || v <= 0) return v;
-  const floor10 = Math.floor(v/10)*10;
-  const cents = v - floor10;
-  return cents <= 9.9 ? floor10 + 9.9 : floor10 + 19.9;
+  const cents = Math.round(v * 100);
+  const n = Math.ceil((cents - 90) / 100);
+  const targetCents = (n < 0 ? 0 : n) * 100 + 90;
+  return targetCents / 100;
 }
 
 function setModo(m){
@@ -347,13 +359,165 @@ function buildTaxasGrid(taxas){
   taxas.forEach((tx, i) => {
     const div = document.createElement("div");
     div.className = "taxa-chip";
-    div.innerHTML = `<div class="n">${i+1}x</div><input value="${tx}" oninput="calcular()" data-idx="${i}" class="taxaInput" />`;
+    div.innerHTML = `<div class="n">${i+1}x</div><input value="${tx}" oninput="onTaxaInput()" onchange="onTaxaChange()" data-idx="${i}" class="taxaInput" />`;
     grid.appendChild(div);
   });
 }
 
 function getTaxas(){
   return Array.from(document.querySelectorAll(".taxaInput")).map(el => el.value);
+}
+
+/* ---- Instituições de pagamento ---- */
+let instituicoes = [];
+let instituicaoAtual = null;
+
+function salvarInstituicoesLocal(){
+  localStorage.setItem("gm_instituicoes", JSON.stringify(instituicoes));
+}
+
+function setStatusInstituicoes(texto){
+  const el = document.getElementById("statusInstituicoes");
+  if(el) el.textContent = texto;
+}
+
+function popularSelectInstituicoes(){
+  const sel = document.getElementById("instituicaoSelect");
+  sel.innerHTML = instituicoes.map(inst =>
+    `<option value="${inst.nome}" ${inst.nome===instituicaoAtual ? "selected" : ""}>${inst.nome}</option>`
+  ).join("");
+}
+
+function selecionarInstituicao(nome){
+  instituicaoAtual = nome;
+  localStorage.setItem("gm_instituicao_atual", nome);
+  const inst = instituicoes.find(x => x.nome === nome);
+  buildTaxasGrid(inst ? inst.taxas : DEFAULT_TAXAS);
+  calcular();
+  renderItens();
+}
+
+function abrirNovaInstituicao(){
+  document.getElementById("novaInstituicaoForm").style.display = "flex";
+  document.getElementById("novaInstituicaoNome").value = "";
+  document.getElementById("novaInstituicaoNome").focus();
+}
+function cancelarNovaInstituicao(){
+  document.getElementById("novaInstituicaoForm").style.display = "none";
+}
+
+async function confirmarNovaInstituicao(){
+  const nomeDigitado = document.getElementById("novaInstituicaoNome").value.trim();
+  if(!nomeDigitado){ alert("Digite o nome da instituição."); return; }
+  if(instituicoes.some(x => x.nome.toLowerCase() === nomeDigitado.toLowerCase())){
+    alert("Já existe uma instituição com esse nome.");
+    return;
+  }
+  const nova = { nome: nomeDigitado, taxas: [...DEFAULT_TAXAS] };
+  instituicoes.push(nova);
+  salvarInstituicoesLocal();
+  popularSelectInstituicoes();
+  cancelarNovaInstituicao();
+  selecionarInstituicao(nomeDigitado);
+
+  if(SHEETS_URL){
+    setStatusInstituicoes("Salvando instituição...");
+    try{
+      await fetch(SHEETS_URL, { method:"POST", body: JSON.stringify({ senha: SENHA_SHEETS, acao: "salvarInstituicao", instituicao: nova }) });
+      setStatusInstituicoes("Instituição salva na planilha ✓");
+    }catch(err){
+      setStatusInstituicoes("Sem conexão — salva só neste aparelho");
+    }
+  }
+}
+
+async function removerInstituicaoAtual(){
+  if(instituicoes.length <= 1){
+    alert("Precisa deixar pelo menos uma instituição cadastrada.");
+    return;
+  }
+  const nomeRemovido = instituicaoAtual;
+  if(!confirm(`Remover "${nomeRemovido}"? As taxas dela serão apagadas.`)) return;
+
+  instituicoes = instituicoes.filter(x => x.nome !== nomeRemovido);
+  salvarInstituicoesLocal();
+  instituicaoAtual = instituicoes[0].nome;
+  localStorage.setItem("gm_instituicao_atual", instituicaoAtual);
+  popularSelectInstituicoes();
+  buildTaxasGrid(instituicoes[0].taxas);
+  calcular();
+  renderItens();
+
+  if(SHEETS_URL){
+    setStatusInstituicoes("Removendo...");
+    try{
+      await fetch(SHEETS_URL, { method:"POST", body: JSON.stringify({ senha: SENHA_SHEETS, acao: "removerInstituicao", nome: nomeRemovido }) });
+      setStatusInstituicoes("Removida da planilha ✓");
+    }catch(err){
+      setStatusInstituicoes("Sem conexão — removida só neste aparelho");
+    }
+  }
+}
+
+function atualizarTaxasInstituicaoAtualLocal(){
+  const inst = instituicoes.find(x => x.nome === instituicaoAtual);
+  if(inst){ inst.taxas = getTaxas(); salvarInstituicoesLocal(); }
+}
+
+function onTaxaInput(){
+  atualizarTaxasInstituicaoAtualLocal();
+  calcular();
+}
+
+async function onTaxaChange(){
+  atualizarTaxasInstituicaoAtualLocal();
+  const inst = instituicoes.find(x => x.nome === instituicaoAtual);
+  if(!inst || !SHEETS_URL) return;
+  setStatusInstituicoes("Salvando taxas...");
+  try{
+    await fetch(SHEETS_URL, { method:"POST", body: JSON.stringify({ senha: SENHA_SHEETS, acao: "salvarInstituicao", instituicao: inst }) });
+    setStatusInstituicoes("Taxas salvas na planilha ✓");
+  }catch(err){
+    setStatusInstituicoes("Sem conexão — taxas salvas só neste aparelho");
+  }
+}
+
+async function carregarInstituicoes(){
+  const locais = JSON.parse(localStorage.getItem("gm_instituicoes") || "[]");
+  instituicoes = locais;
+
+  if(SHEETS_URL){
+    setStatusInstituicoes("Carregando instituições...");
+    try{
+      const res = await fetch(`${SHEETS_URL}?senha=${encodeURIComponent(SENHA_SHEETS)}&tipo=instituicoes`);
+      const data = await res.json();
+      if(data.instituicoes && data.instituicoes.length){
+        instituicoes = data.instituicoes;
+        setStatusInstituicoes("Instituições sincronizadas ✓");
+      } else {
+        setStatusInstituicoes(instituicoes.length ? "Sem instituições na planilha ainda — usando as deste aparelho" : "");
+      }
+    }catch(err){
+      console.warn("Sem conexão pra carregar instituições, usando dados locais.", err);
+      setStatusInstituicoes("Sem conexão — mostrando dados locais");
+    }
+  }
+
+  if(!instituicoes || instituicoes.length === 0){
+    instituicoes = [{ nome: "Minha maquininha", taxas: [...DEFAULT_TAXAS] }];
+    if(SHEETS_URL){
+      try{ await fetch(SHEETS_URL, { method:"POST", body: JSON.stringify({ senha: SENHA_SHEETS, acao:"salvarInstituicao", instituicao: instituicoes[0] }) }); }catch(err){}
+    }
+  }
+  salvarInstituicoesLocal();
+
+  const nomeSalvo = localStorage.getItem("gm_instituicao_atual");
+  instituicaoAtual = (nomeSalvo && instituicoes.some(x => x.nome === nomeSalvo)) ? nomeSalvo : instituicoes[0].nome;
+  localStorage.setItem("gm_instituicao_atual", instituicaoAtual);
+
+  popularSelectInstituicoes();
+  const inst = instituicoes.find(x => x.nome === instituicaoAtual);
+  buildTaxasGrid(inst.taxas);
 }
 
 function calcular(){
@@ -394,7 +558,7 @@ function calcular(){
     custo: document.getElementById("custo").value,
     precoVenda: document.getElementById("precoVenda").value,
     margemAlvo: document.getElementById("margemAlvo").value,
-    modo, arredondar, compensarTaxa, taxas
+    modo, arredondar, compensarTaxa
   }));
 
   return { custo, precoFinal, margemVenda, lucro };
@@ -457,7 +621,7 @@ function renderItens(){
       <tr>
         <td colspan="6" style="padding:0; background:#100d09;">
           <div style="padding:14px 10px;">
-            <p class="hint" style="margin:0 0 10px;">Cálculo de <strong style="color:var(--gold-bright)">${it.produto}</strong> com as taxas atuais da maquininha:</p>
+            <p class="hint" style="margin:0 0 10px;">Cálculo de <strong style="color:var(--gold-bright)">${it.produto}</strong> usando as taxas de <strong style="color:var(--gold-bright)">${instituicaoAtual}</strong>:</p>
             <table style="min-width:520px;">
               <thead>
                 <tr><th style="text-align:left;">Forma</th><th>Taxa</th><th>Preço sugerido</th><th>Valor da taxa</th><th>Você recebe</th><th>Lucro líquido</th></tr>
@@ -586,10 +750,8 @@ function importarCSV(event){
 }
 
 /* ---- Inicialização ---- */
-function init(){
+async function init(){
   const saved = JSON.parse(localStorage.getItem("gm_state") || "null");
-  const taxas = saved && saved.taxas && saved.taxas.length === 10 ? saved.taxas : DEFAULT_TAXAS;
-  buildTaxasGrid(taxas);
 
   document.getElementById("custo").value = saved ? saved.custo : "35,00";
   document.getElementById("precoVenda").value = saved ? saved.precoVenda : "69,90";
@@ -601,9 +763,14 @@ function init(){
     document.getElementById(id).addEventListener("input", calcular);
   });
 
+  await carregarInstituicoes();
   setModo(saved ? saved.modo : "direto");
-  carregarItens();
+  await carregarItens();
   calcular();
+}
+</script>
+</body>
+</html>
 }
 </script>
 </body>
