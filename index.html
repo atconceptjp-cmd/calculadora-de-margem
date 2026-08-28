@@ -131,6 +131,7 @@
     <div style="display:flex; align-items:center; gap:10px;">
       <div class="toggle-group">
         <div class="toggle on" id="tab-direto" onclick="setModo('direto')">Tenho o preço</div>
+        <div class="toggle" id="tab-cartao" onclick="setModo('cartao')">Tenho o preço no cartão</div>
         <div class="toggle" id="tab-reverso" onclick="setModo('reverso')">Quero a margem</div>
       </div>
       <button class="logout" onclick="logout()">Sair</button>
@@ -152,6 +153,13 @@
         <input class="field pl" id="precoVenda" inputmode="decimal" placeholder="0,00" />
       </div>
     </div>
+    <div id="campoCartao" style="display:none;">
+      <label class="f">Preço de venda no cartão (parcelado sem juros)</label>
+      <div class="inputwrap">
+        <span class="left">R$</span>
+        <input class="field pl" id="precoCartaoInput" inputmode="decimal" placeholder="0,00" />
+      </div>
+    </div>
     <div id="campoReverso" style="display:none;">
       <label class="f">Margem desejada sobre a venda</label>
       <div class="inputwrap">
@@ -163,15 +171,15 @@
 
   <div class="grid4">
     <div class="card2">
-      <div class="kpi-label">Preço PIX sugerido</div>
+      <div class="kpi-label" id="kpiPrecoLabel">Preço de venda sugerido</div>
       <div class="kpi-val num display" id="kpiPreco" style="color:var(--gold-bright)">—</div>
     </div>
     <div class="card2">
-      <div class="kpi-label">Lucro líquido</div>
+      <div class="kpi-label" id="kpiLucroLabel">Lucro bruto (sem taxa)</div>
       <div class="kpi-val num display" id="kpiLucro">—</div>
     </div>
     <div class="card2">
-      <div class="kpi-label">Margem sobre venda</div>
+      <div class="kpi-label">Margem bruta</div>
       <div class="kpi-val num display" id="kpiMargem">—</div>
     </div>
     <div class="card2">
@@ -185,8 +193,8 @@
     <span id="saudeTexto" style="color:var(--ink-dim); font-size:13px;">Preencha os valores</span>
     <span style="border-left:1px solid var(--line); height:16px; margin:0 4px;"></span>
     <label class="checkline"><input type="checkbox" id="arredondar" checked onchange="calcular()" /> Arredondar preços psicológicos (ex: R$ 69,90)</label>
-    <span style="border-left:1px solid var(--line); height:16px; margin:0 4px;"></span>
-    <label class="checkline"><input type="checkbox" id="compensarTaxa" onchange="calcular()" /> Aumentar preço no cartão pra compensar a taxa</label>
+    <span style="border-left:1px solid var(--line); height:16px; margin:0 4px;" id="divisorCompensar"></span>
+    <label class="checkline" id="labelCompensar"><input type="checkbox" id="compensarTaxa" onchange="calcular()" /> Aumentar preço no cartão pra compensar a taxa</label>
   </div>
   <p class="hint" id="notaCompensar" style="margin:-14px 0 20px;"></p>
 
@@ -211,7 +219,7 @@
     <h2 class="section">PIX × Cartão, parcela a parcela</h2>
     <table style="min-width:560px;">
       <thead>
-        <tr><th style="text-align:left;">Forma</th><th>Taxa</th><th>Preço sugerido</th><th>Valor da taxa</th><th>Você recebe</th><th>Lucro líquido</th></tr>
+        <tr><th style="text-align:left;">Forma</th><th>Taxa</th><th>Preço sugerido</th><th>Valor da taxa</th><th>Você recebe</th><th>Margem</th><th>Lucro líquido</th></tr>
       </thead>
       <tbody id="tabelaCartao"></tbody>
     </table>
@@ -347,9 +355,17 @@ function roundPsychological(v){
 function setModo(m){
   modo = m;
   document.getElementById("tab-direto").classList.toggle("on", m==="direto");
+  document.getElementById("tab-cartao").classList.toggle("on", m==="cartao");
   document.getElementById("tab-reverso").classList.toggle("on", m==="reverso");
   document.getElementById("campoDireto").style.display = m==="direto" ? "block" : "none";
+  document.getElementById("campoCartao").style.display = m==="cartao" ? "block" : "none";
   document.getElementById("campoReverso").style.display = m==="reverso" ? "block" : "none";
+
+  document.getElementById("kpiPrecoLabel").textContent = m==="cartao" ? "Preço no cartão (sem juros)" : "Preço de venda sugerido";
+  document.getElementById("kpiLucroLabel").textContent = m==="cartao" ? "Lucro bruto (antes da taxa)" : "Lucro bruto (sem taxa)";
+  document.getElementById("labelCompensar").style.display = m==="cartao" ? "none" : "flex";
+  document.getElementById("divisorCompensar").style.display = m==="cartao" ? "none" : "inline-block";
+
   calcular();
 }
 
@@ -523,18 +539,24 @@ async function carregarInstituicoes(){
 function calcular(){
   const custo = parseNum(document.getElementById("custo").value);
   const arredondar = document.getElementById("arredondar").checked;
-  const compensarTaxa = document.getElementById("compensarTaxa").checked;
-  document.getElementById("notaCompensar").textContent = compensarTaxa
-    ? "Preço do cartão aumenta a cada parcela pra manter seu lucro igual ao do PIX."
-    : "Preço igual ao do PIX em qualquer parcela — a taxa da maquininha reduz seu lucro real conforme parcela.";
+  let compensarTaxa = document.getElementById("compensarTaxa").checked;
 
   let p;
   if(modo === "direto"){
     p = parseNum(document.getElementById("precoVenda").value);
+  } else if(modo === "cartao"){
+    p = parseNum(document.getElementById("precoCartaoInput").value);
+    compensarTaxa = false; // no modo cartão o preço é fixo em qualquer parcela, por definição (sem juros)
   } else {
     const alvo = parseNum(document.getElementById("margemAlvo").value);
     p = (custo > 0 && alvo < 100) ? custo / (1 - alvo/100) : NaN;
   }
+
+  document.getElementById("notaCompensar").textContent = modo === "cartao"
+    ? "Preço fixo em todas as parcelas (parcelamento sem juros pro cliente) — a tabela abaixo mostra quanto sobra de verdade em cada parcela depois da taxa."
+    : (compensarTaxa
+        ? "Preço do cartão aumenta a cada parcela pra manter seu lucro igual ao do PIX."
+        : "Preço igual ao do PIX em qualquer parcela — a taxa da maquininha reduz seu lucro real conforme parcela.");
 
   const precoFinal = (arredondar && isFinite(p) && p>0) ? roundPsychological(p) : p;
   const lucro = precoFinal - custo;
@@ -557,11 +579,12 @@ function calcular(){
   localStorage.setItem("gm_state", JSON.stringify({
     custo: document.getElementById("custo").value,
     precoVenda: document.getElementById("precoVenda").value,
+    precoCartaoInput: document.getElementById("precoCartaoInput").value,
     margemAlvo: document.getElementById("margemAlvo").value,
-    modo, arredondar, compensarTaxa
+    modo, arredondar, compensarTaxa: document.getElementById("compensarTaxa").checked
   }));
 
-  return { custo, precoFinal, margemVenda, lucro };
+  return { custo, precoFinal, margemVenda, lucro, compensarTaxa };
 }
 
 /* Gera as linhas da tabela PIX x Cartão para um preço/custo/taxas quaisquer.
@@ -571,7 +594,7 @@ function calcular(){
 function gerarLinhasCartao(precoFinal, custo, taxas, arredondar, compensarTaxa){
   const lucro = precoFinal - custo;
   const margemVenda = precoFinal > 0 ? (lucro/precoFinal)*100 : NaN;
-  let rows = `<tr><td style="color:var(--gold-bright); font-weight:600;">PIX / à vista</td><td class="num">0,0%</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num">${fmtBRL(0)}</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num" style="font-weight:600; color:${marginColor(margemVenda)}">${fmtBRL(lucro)}</td></tr>`;
+  let rows = `<tr><td style="color:var(--gold-bright); font-weight:600;">PIX / à vista</td><td class="num">0,0%</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num">${fmtBRL(0)}</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num" style="color:${marginColor(margemVenda)}">${fmtPct(margemVenda)}</td><td class="num" style="font-weight:600; color:${marginColor(margemVenda)}">${fmtBRL(lucro)}</td></tr>`;
   taxas.forEach((txRaw, i) => {
     const tx = parseNum(txRaw);
     let precoCartao;
@@ -584,7 +607,8 @@ function gerarLinhasCartao(precoFinal, custo, taxas, arredondar, compensarTaxa){
     const valorTaxa = isFinite(precoCartao) ? precoCartao * (tx/100) : NaN;
     const voceRecebe = isFinite(precoCartao) ? precoCartao - valorTaxa : NaN;
     const lucroLiquido = isFinite(voceRecebe) ? voceRecebe - custo : NaN;
-    rows += `<tr><td>Cartão ${i+1}x</td><td class="num">${fmtPct(tx)}</td><td class="num">${fmtBRL(precoCartao)}</td><td class="num" style="color:var(--bad)">${fmtBRL(valorTaxa)}</td><td class="num">${fmtBRL(voceRecebe)}</td><td class="num" style="font-weight:600;">${fmtBRL(lucroLiquido)}</td></tr>`;
+    const margemParcela = (isFinite(voceRecebe) && voceRecebe > 0) ? (lucroLiquido/voceRecebe)*100 : NaN;
+    rows += `<tr><td>Cartão ${i+1}x</td><td class="num">${fmtPct(tx)}</td><td class="num">${fmtBRL(precoCartao)}</td><td class="num" style="color:var(--bad)">${fmtBRL(valorTaxa)}</td><td class="num">${fmtBRL(voceRecebe)}</td><td class="num" style="color:${marginColor(margemParcela)}">${fmtPct(margemParcela)}</td><td class="num" style="font-weight:600;">${fmtBRL(lucroLiquido)}</td></tr>`;
   });
   return rows;
 }
@@ -613,18 +637,20 @@ function renderItens(){
       </tr>`;
     if(itemAberto !== i) return linhaPrincipal;
 
-    const taxasAtuais = getTaxas();
-    const arredondar = document.getElementById("arredondar").checked;
-    const compensarTaxa = document.getElementById("compensarTaxa").checked;
-    const linhasDetalhe = gerarLinhasCartao(it.preco, it.custo, taxasAtuais, arredondar, compensarTaxa);
+    // Usa o retrato exato salvo no momento do "Salvar item" — nada recalcula com taxas novas.
+    const taxasSalvas = (it.taxas && it.taxas.length === 10) ? it.taxas : getTaxas();
+    const arredondarSalvo = it.arredondar !== undefined ? it.arredondar : document.getElementById("arredondar").checked;
+    const compensarSalvo = it.compensarTaxa !== undefined ? it.compensarTaxa : document.getElementById("compensarTaxa").checked;
+    const linhasDetalhe = gerarLinhasCartao(it.preco, it.custo, taxasSalvas, arredondarSalvo, compensarSalvo);
+    const instNome = it.instituicao || instituicaoAtual;
     const detalhe = `
       <tr>
         <td colspan="6" style="padding:0; background:#100d09;">
           <div style="padding:14px 10px;">
-            <p class="hint" style="margin:0 0 10px;">Cálculo de <strong style="color:var(--gold-bright)">${it.produto}</strong> usando as taxas de <strong style="color:var(--gold-bright)">${instituicaoAtual}</strong>:</p>
+            <p class="hint" style="margin:0 0 10px;">Simulação salva em ${it.data} com as taxas de <strong style="color:var(--gold-bright)">${instNome}</strong>:</p>
             <table style="min-width:520px;">
               <thead>
-                <tr><th style="text-align:left;">Forma</th><th>Taxa</th><th>Preço sugerido</th><th>Valor da taxa</th><th>Você recebe</th><th>Lucro líquido</th></tr>
+                <tr><th style="text-align:left;">Forma</th><th>Taxa</th><th>Preço sugerido</th><th>Valor da taxa</th><th>Você recebe</th><th>Margem</th><th>Lucro líquido</th></tr>
               </thead>
               <tbody>${linhasDetalhe}</tbody>
             </table>
@@ -647,7 +673,15 @@ async function salvarItem(){
     alert("Preencha custo e preço de venda (ou margem) antes de salvar.");
     return;
   }
-  const novoItem = { produto: nome, custo: r.custo, preco: r.precoFinal, margem: r.margemVenda, lucro: r.lucro, data: new Date().toLocaleDateString("pt-BR") };
+  const novoItem = {
+    produto: nome, custo: r.custo, preco: r.precoFinal, margem: r.margemVenda, lucro: r.lucro,
+    data: new Date().toLocaleDateString("pt-BR"),
+    modo: modo,
+    instituicao: instituicaoAtual,
+    taxas: getTaxas(),
+    arredondar: document.getElementById("arredondar").checked,
+    compensarTaxa: r.compensarTaxa
+  };
   itens.push(novoItem);
   localStorage.setItem("gm_itens", JSON.stringify(itens));
   document.getElementById("nomeProduto").value = "";
@@ -690,7 +724,12 @@ async function carregarItens(){
     if(data.erro){ setStatusPlanilha("Senha da planilha incorreta"); return; }
     itens = (data.itens || []).map(it => ({
       produto: it.produto, custo: parseNum(it.custo), preco: parseNum(it.preco),
-      margem: parseNum(it.margem), lucro: parseNum(it.lucro), data: it.data
+      margem: parseNum(it.margem), lucro: parseNum(it.lucro), data: it.data,
+      modo: it.modo || "direto",
+      instituicao: it.instituicao || "",
+      taxas: Array.isArray(it.taxas) ? it.taxas : (it.taxas ? JSON.parse(it.taxas) : []),
+      arredondar: it.arredondar === true || it.arredondar === "TRUE" || it.arredondar === "true",
+      compensarTaxa: it.compensarTaxa === true || it.compensarTaxa === "TRUE" || it.compensarTaxa === "true"
     }));
     localStorage.setItem("gm_itens", JSON.stringify(itens));
     setStatusPlanilha("Sincronizado com a planilha ✓");
@@ -707,10 +746,12 @@ function setStatusPlanilha(texto){
 }
 
 function baixarCSV(){
-  const header = "Produto;Custo;Preco Venda PIX;Margem (%);Lucro;Data\n";
+  const header = "Produto;Custo;Preco Venda;Margem (%);Lucro;Data;Instituicao;Taxas;Arredondar;CompensarTaxa;Modo\n";
   const rows = itens.map(it =>
     [it.produto, it.custo.toFixed(2).replace(".",","), it.preco.toFixed(2).replace(".",","),
-     it.margem.toFixed(1).replace(".",","), it.lucro.toFixed(2).replace(".",","), it.data].join(";")
+     it.margem.toFixed(1).replace(".",","), it.lucro.toFixed(2).replace(".",","), it.data,
+     it.instituicao || "", (it.taxas || []).join("|"), !!it.arredondar, !!it.compensarTaxa, it.modo || "direto"
+    ].join(";")
   ).join("\n");
   const blob = new Blob(["\uFEFF" + header + rows], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -731,13 +772,18 @@ function importarCSV(event){
     lines.shift(); // remove cabeçalho
     let importados = 0;
     lines.forEach(line => {
-      const [produto, custo, preco, margem, lucro, data] = line.split(";");
+      const [produto, custo, preco, margem, lucro, data, instituicao, taxasStr, arredondarStr, compensarStr, modoItem] = line.split(";");
       if(!produto) return;
       itens.push({
         produto,
         custo: parseNum(custo), preco: parseNum(preco),
         margem: parseNum(margem), lucro: parseNum(lucro),
-        data: data || new Date().toLocaleDateString("pt-BR")
+        data: data || new Date().toLocaleDateString("pt-BR"),
+        instituicao: instituicao || "",
+        taxas: taxasStr ? taxasStr.split("|") : [],
+        arredondar: arredondarStr === "true",
+        compensarTaxa: compensarStr === "true",
+        modo: modoItem || "direto"
       });
       importados++;
     });
@@ -755,11 +801,12 @@ async function init(){
 
   document.getElementById("custo").value = saved ? saved.custo : "35,00";
   document.getElementById("precoVenda").value = saved ? saved.precoVenda : "69,90";
+  document.getElementById("precoCartaoInput").value = saved ? (saved.precoCartaoInput || "") : "";
   document.getElementById("margemAlvo").value = saved ? saved.margemAlvo : "40";
   document.getElementById("arredondar").checked = saved ? !!saved.arredondar : true;
   document.getElementById("compensarTaxa").checked = saved ? !!saved.compensarTaxa : false;
 
-  ["custo","precoVenda","margemAlvo"].forEach(id => {
+  ["custo","precoVenda","precoCartaoInput","margemAlvo"].forEach(id => {
     document.getElementById(id).addEventListener("input", calcular);
   });
 
