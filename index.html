@@ -131,7 +131,6 @@
     <div style="display:flex; align-items:center; gap:10px;">
       <div class="toggle-group">
         <div class="toggle on" id="tab-direto" onclick="setModo('direto')">Tenho o preço</div>
-        <div class="toggle" id="tab-cartao" onclick="setModo('cartao')">Tenho o preço no cartão</div>
         <div class="toggle" id="tab-reverso" onclick="setModo('reverso')">Quero a margem</div>
       </div>
       <button class="logout" onclick="logout()">Sair</button>
@@ -153,13 +152,6 @@
         <input class="field pl" id="precoVenda" inputmode="decimal" placeholder="0,00" />
       </div>
     </div>
-    <div id="campoCartao" style="display:none;">
-      <label class="f">Preço de venda no cartão (parcelado sem juros)</label>
-      <div class="inputwrap">
-        <span class="left">R$</span>
-        <input class="field pl" id="precoCartaoInput" inputmode="decimal" placeholder="0,00" />
-      </div>
-    </div>
     <div id="campoReverso" style="display:none;">
       <label class="f">Margem desejada sobre a venda</label>
       <div class="inputwrap">
@@ -167,7 +159,15 @@
         <span class="right">%</span>
       </div>
     </div>
+    <div>
+      <label class="f">Preço no cartão (opcional)</label>
+      <div class="inputwrap">
+        <span class="left">R$</span>
+        <input class="field pl" id="precoCartaoInput" inputmode="decimal" placeholder="deixe em branco = igual ao PIX" />
+      </div>
+    </div>
   </div>
+  <p class="hint" style="margin:-14px 0 20px;">Se o preço no cartão for diferente do PIX (venda parcelada sem juros pro cliente), preencha aqui. Em branco, os dois ficam com o mesmo valor.</p>
 
   <div class="grid4">
     <div class="card2">
@@ -355,17 +355,9 @@ function roundPsychological(v){
 function setModo(m){
   modo = m;
   document.getElementById("tab-direto").classList.toggle("on", m==="direto");
-  document.getElementById("tab-cartao").classList.toggle("on", m==="cartao");
   document.getElementById("tab-reverso").classList.toggle("on", m==="reverso");
   document.getElementById("campoDireto").style.display = m==="direto" ? "block" : "none";
-  document.getElementById("campoCartao").style.display = m==="cartao" ? "block" : "none";
   document.getElementById("campoReverso").style.display = m==="reverso" ? "block" : "none";
-
-  document.getElementById("kpiPrecoLabel").textContent = m==="cartao" ? "Preço no cartão (sem juros)" : "Preço de venda sugerido";
-  document.getElementById("kpiLucroLabel").textContent = m==="cartao" ? "Lucro bruto (antes da taxa)" : "Lucro bruto (sem taxa)";
-  document.getElementById("labelCompensar").style.display = m==="cartao" ? "none" : "flex";
-  document.getElementById("divisorCompensar").style.display = m==="cartao" ? "none" : "inline-block";
-
   calcular();
 }
 
@@ -405,6 +397,8 @@ function popularSelectInstituicoes(){
 }
 
 function selecionarInstituicao(nome){
+  const existe = instituicoes.some(x => x.nome === nome);
+  if(!existe) return;
   instituicaoAtual = nome;
   localStorage.setItem("gm_instituicao_atual", nome);
   const inst = instituicoes.find(x => x.nome === nome);
@@ -480,22 +474,51 @@ function atualizarTaxasInstituicaoAtualLocal(){
   if(inst){ inst.taxas = getTaxas(); salvarInstituicoesLocal(); }
 }
 
+let taxaSaveTimer = null;
+let taxaSaveBusy = false;
+let taxaSaveQueued = false;
+
+async function salvarInstituicaoNaPlanilha(inst){
+  if(!SHEETS_URL || !inst) return;
+  if(taxaSaveBusy){ taxaSaveQueued = true; return; }
+  taxaSaveBusy = true;
+  setStatusInstituicoes("Salvando taxas...");
+  try{
+    const res = await fetch(SHEETS_URL, { method:"POST", body: JSON.stringify({ senha: SENHA_SHEETS, acao:"salvarInstituicao", instituicao:inst }) });
+    const data = await res.json().catch(()=>({}));
+    if(data.erro) throw new Error(data.erro);
+    setStatusInstituicoes("Taxas salvas na planilha ✓");
+  }catch(err){
+    console.warn("Falha ao salvar instituição:", err);
+    setStatusInstituicoes("Sem conexão — taxas continuam salvas neste aparelho");
+  }finally{
+    taxaSaveBusy = false;
+    if(taxaSaveQueued){
+      taxaSaveQueued = false;
+      const atual = instituicoes.find(x => x.nome === instituicaoAtual);
+      if(atual) salvarInstituicaoNaPlanilha(atual);
+    }
+  }
+}
+
+function agendarSalvamentoTaxa(){
+  clearTimeout(taxaSaveTimer);
+  taxaSaveTimer = setTimeout(()=>{
+    const inst = instituicoes.find(x => x.nome === instituicaoAtual);
+    if(inst) salvarInstituicaoNaPlanilha(inst);
+  }, 700);
+}
+
 function onTaxaInput(){
   atualizarTaxasInstituicaoAtualLocal();
   calcular();
+  agendarSalvamentoTaxa();
 }
 
-async function onTaxaChange(){
+function onTaxaChange(){
   atualizarTaxasInstituicaoAtualLocal();
   const inst = instituicoes.find(x => x.nome === instituicaoAtual);
-  if(!inst || !SHEETS_URL) return;
-  setStatusInstituicoes("Salvando taxas...");
-  try{
-    await fetch(SHEETS_URL, { method:"POST", body: JSON.stringify({ senha: SENHA_SHEETS, acao: "salvarInstituicao", instituicao: inst }) });
-    setStatusInstituicoes("Taxas salvas na planilha ✓");
-  }catch(err){
-    setStatusInstituicoes("Sem conexão — taxas salvas só neste aparelho");
-  }
+  if(inst) salvarInstituicaoNaPlanilha(inst);
 }
 
 async function carregarInstituicoes(){
@@ -508,7 +531,10 @@ async function carregarInstituicoes(){
       const res = await fetch(`${SHEETS_URL}?senha=${encodeURIComponent(SENHA_SHEETS)}&tipo=instituicoes`);
       const data = await res.json();
       if(data.instituicoes && data.instituicoes.length){
-        instituicoes = data.instituicoes;
+        instituicoes = data.instituicoes.map(inst => ({
+          nome: String(inst.nome || "").trim(),
+          taxas: Array.isArray(inst.taxas) && inst.taxas.length === 10 ? inst.taxas : [...DEFAULT_TAXAS]
+        })).filter(inst => inst.nome);
         setStatusInstituicoes("Instituições sincronizadas ✓");
       } else {
         setStatusInstituicoes(instituicoes.length ? "Sem instituições na planilha ainda — usando as deste aparelho" : "");
@@ -539,31 +565,30 @@ async function carregarInstituicoes(){
 function calcular(){
   const custo = parseNum(document.getElementById("custo").value);
   const arredondar = document.getElementById("arredondar").checked;
-  let compensarTaxa = document.getElementById("compensarTaxa").checked;
+  const compensarTaxa = document.getElementById("compensarTaxa").checked;
 
-  let p;
+  let pPix;
   if(modo === "direto"){
-    p = parseNum(document.getElementById("precoVenda").value);
-  } else if(modo === "cartao"){
-    p = parseNum(document.getElementById("precoCartaoInput").value);
-    compensarTaxa = false; // no modo cartão o preço é fixo em qualquer parcela, por definição (sem juros)
+    pPix = parseNum(document.getElementById("precoVenda").value);
   } else {
     const alvo = parseNum(document.getElementById("margemAlvo").value);
-    p = (custo > 0 && alvo < 100) ? custo / (1 - alvo/100) : NaN;
+    pPix = (custo > 0 && alvo < 100) ? custo / (1 - alvo/100) : NaN;
   }
+  const precoPix = (arredondar && isFinite(pPix) && pPix>0) ? roundPsychological(pPix) : pPix;
 
-  document.getElementById("notaCompensar").textContent = modo === "cartao"
-    ? "Preço fixo em todas as parcelas (parcelamento sem juros pro cliente) — a tabela abaixo mostra quanto sobra de verdade em cada parcela depois da taxa."
-    : (compensarTaxa
-        ? "Preço do cartão aumenta a cada parcela pra manter seu lucro igual ao do PIX."
-        : "Preço igual ao do PIX em qualquer parcela — a taxa da maquininha reduz seu lucro real conforme parcela.");
+  const cartaoDigitado = parseNum(document.getElementById("precoCartaoInput").value);
+  let precoCartaoBase = (cartaoDigitado > 0) ? cartaoDigitado : precoPix;
+  precoCartaoBase = (arredondar && isFinite(precoCartaoBase) && precoCartaoBase>0) ? roundPsychological(precoCartaoBase) : precoCartaoBase;
 
-  const precoFinal = (arredondar && isFinite(p) && p>0) ? roundPsychological(p) : p;
-  const lucro = precoFinal - custo;
-  const margemVenda = precoFinal > 0 ? (lucro/precoFinal)*100 : NaN;
+  document.getElementById("notaCompensar").textContent = compensarTaxa
+    ? "Preço do cartão aumenta a cada parcela pra manter seu lucro igual ao do PIX (ignora o preço no cartão digitado acima)."
+    : "Preço no cartão fica fixo em qualquer parcela (parcelamento sem juros pro cliente) — a tabela mostra quanto sobra de verdade em cada uma.";
+
+  const lucro = precoPix - custo;
+  const margemVenda = precoPix > 0 ? (lucro/precoPix)*100 : NaN;
   const markup = custo > 0 ? (lucro/custo)*100 : NaN;
 
-  document.getElementById("kpiPreco").textContent = fmtBRL(precoFinal);
+  document.getElementById("kpiPreco").textContent = fmtBRL(precoPix);
   document.getElementById("kpiLucro").textContent = fmtBRL(lucro);
   document.getElementById("kpiLucro").style.color = marginColor(margemVenda);
   document.getElementById("kpiMargem").textContent = fmtPct(margemVenda);
@@ -574,34 +599,34 @@ function calcular(){
   document.getElementById("saudeTexto").textContent = marginLabel(margemVenda);
 
   const taxas = getTaxas();
-  document.getElementById("tabelaCartao").innerHTML = gerarLinhasCartao(precoFinal, custo, taxas, arredondar, compensarTaxa);
+  document.getElementById("tabelaCartao").innerHTML = gerarLinhasCartao(precoPix, precoCartaoBase, custo, taxas, arredondar, compensarTaxa);
 
   localStorage.setItem("gm_state", JSON.stringify({
     custo: document.getElementById("custo").value,
     precoVenda: document.getElementById("precoVenda").value,
     precoCartaoInput: document.getElementById("precoCartaoInput").value,
     margemAlvo: document.getElementById("margemAlvo").value,
-    modo, arredondar, compensarTaxa: document.getElementById("compensarTaxa").checked
+    modo, arredondar, compensarTaxa
   }));
 
-  return { custo, precoFinal, margemVenda, lucro, compensarTaxa };
+  return { custo, precoPix, precoCartaoBase, margemVenda, lucro, compensarTaxa };
 }
 
 /* Gera as linhas da tabela PIX x Cartão para um preço/custo/taxas quaisquer.
    Usada tanto no cálculo principal quanto no detalhe de um item salvo.
    compensarTaxa = true  -> preço no cartão sobe pra você sempre receber o líquido do PIX (modelo "compensado")
    compensarTaxa = false -> preço é o mesmo do PIX em qualquer parcela, e a taxa reduz seu lucro de verdade (modelo real) */
-function gerarLinhasCartao(precoFinal, custo, taxas, arredondar, compensarTaxa){
-  const lucro = precoFinal - custo;
-  const margemVenda = precoFinal > 0 ? (lucro/precoFinal)*100 : NaN;
-  let rows = `<tr><td style="color:var(--gold-bright); font-weight:600;">PIX / à vista</td><td class="num">0,0%</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num">${fmtBRL(0)}</td><td class="num">${fmtBRL(precoFinal)}</td><td class="num" style="color:${marginColor(margemVenda)}">${fmtPct(margemVenda)}</td><td class="num" style="font-weight:600; color:${marginColor(margemVenda)}">${fmtBRL(lucro)}</td></tr>`;
+function gerarLinhasCartao(precoPix, precoCartaoBase, custo, taxas, arredondar, compensarTaxa){
+  const lucroPix = precoPix - custo;
+  const margemPix = precoPix > 0 ? (lucroPix/precoPix)*100 : NaN;
+  let rows = `<tr><td style="color:var(--gold-bright); font-weight:600;">PIX / à vista</td><td class="num">0,0%</td><td class="num">${fmtBRL(precoPix)}</td><td class="num">${fmtBRL(0)}</td><td class="num">${fmtBRL(precoPix)}</td><td class="num" style="color:${marginColor(margemPix)}">${fmtPct(margemPix)}</td><td class="num" style="font-weight:600; color:${marginColor(margemPix)}">${fmtBRL(lucroPix)}</td></tr>`;
   taxas.forEach((txRaw, i) => {
     const tx = parseNum(txRaw);
     let precoCartao;
     if(compensarTaxa){
-      precoCartao = (precoFinal > 0 && tx < 100) ? precoFinal / (1 - tx/100) : NaN;
+      precoCartao = (precoPix > 0 && tx < 100) ? precoPix / (1 - tx/100) : NaN;
     } else {
-      precoCartao = precoFinal;
+      precoCartao = precoCartaoBase;
     }
     if(arredondar && isFinite(precoCartao)) precoCartao = roundPsychological(precoCartao);
     const valorTaxa = isFinite(precoCartao) ? precoCartao * (tx/100) : NaN;
@@ -638,10 +663,13 @@ function renderItens(){
     if(itemAberto !== i) return linhaPrincipal;
 
     // Usa o retrato exato salvo no momento do "Salvar item" — nada recalcula com taxas novas.
-    const taxasSalvas = (it.taxas && it.taxas.length === 10) ? it.taxas : getTaxas();
+    const instVinculada = it.instituicao ? instituicoes.find(x => x.nome === it.instituicao) : null;
+    const taxasSalvas = (instVinculada && Array.isArray(instVinculada.taxas) && instVinculada.taxas.length === 10)
+      ? instVinculada.taxas
+      : ((it.taxas && it.taxas.length === 10) ? it.taxas : getTaxas());
     const arredondarSalvo = it.arredondar !== undefined ? it.arredondar : document.getElementById("arredondar").checked;
     const compensarSalvo = it.compensarTaxa !== undefined ? it.compensarTaxa : document.getElementById("compensarTaxa").checked;
-    const linhasDetalhe = gerarLinhasCartao(it.preco, it.custo, taxasSalvas, arredondarSalvo, compensarSalvo);
+    const linhasDetalhe = gerarLinhasCartao(it.preco, it.preco, it.custo, taxasSalvas, arredondarSalvo, compensarSalvo);
     const instNome = it.instituicao || instituicaoAtual;
     const detalhe = `
       <tr>
@@ -669,12 +697,12 @@ function toggleDetalheItem(i){
 async function salvarItem(){
   const nome = document.getElementById("nomeProduto").value.trim() || "Produto sem nome";
   const r = calcular();
-  if(!isFinite(r.precoFinal) || r.custo <= 0){
+  if(!isFinite(r.precoPix) || r.custo <= 0){
     alert("Preencha custo e preço de venda (ou margem) antes de salvar.");
     return;
   }
   const novoItem = {
-    produto: nome, custo: r.custo, preco: r.precoFinal, margem: r.margemVenda, lucro: r.lucro,
+    produto: nome, custo: r.custo, preco: r.precoPix, margem: r.margemVenda, lucro: r.lucro,
     data: new Date().toLocaleDateString("pt-BR"),
     modo: modo,
     instituicao: instituicaoAtual,
@@ -814,10 +842,6 @@ async function init(){
   setModo(saved ? saved.modo : "direto");
   await carregarItens();
   calcular();
-}
-</script>
-</body>
-</html>
 }
 </script>
 </body>
